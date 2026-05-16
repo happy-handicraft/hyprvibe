@@ -75,7 +75,7 @@ let
     qpwgraph
     # sonobus
     # krita
-    x32edit
+    # x32edit  # Temporarily removed: upstream download URL returns HTTP 500
     # pwvucontrol
     easyeffects
     wayfarer
