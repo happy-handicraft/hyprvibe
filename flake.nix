@@ -7,6 +7,9 @@
     # companion.url = "github:noblepayne/bitfocus-companion-flake";
     # companion.inputs.nixpkgs.follows = "nixpkgs";
 
+    disko.url = "github:nix-community/disko";
+    disko.inputs.nixpkgs.follows = "nixpkgs";
+
     prettyswitch.url = "github:noblepayne/pretty-switch";
     prettyswitch.inputs.nixpkgs.follows = "nixpkgs";
 
@@ -35,6 +38,7 @@
     {
       self,
       nixpkgs,
+      disko,
       prettyswitch,
       hyprland,
       openclaw,
@@ -149,6 +153,8 @@
         nixbook = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           modules = [
+            disko.nixosModules.disko
+            ./hosts/nixbook/disko.nix
             ./hosts/nixbook/system.nix
             (
               { ... }:
