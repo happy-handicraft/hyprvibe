@@ -166,6 +166,10 @@
                     codex-latest = codex-cli-nix.packages.${prev.stdenv.hostPlatform.system}.default;
                     codex-node = codex-cli-nix.packages.${prev.stdenv.hostPlatform.system}.codex-node;
                     codex-acp = final.callPackage ./pkgs/codex-acp.nix { };
+                    # openldap's test017-syncreplication-refresh is timing-flaky
+                    # and this revision isn't in the binary cache, forcing a
+                    # source build (pulled in transitively via lutris).
+                    openldap = prev.openldap.overrideAttrs (_: { doCheck = false; });
                   })
                 ];
               }
