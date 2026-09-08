@@ -1,13 +1,16 @@
-{ lib, config, ... }:
-let
-  cfg = config.hyprvibe;
-in
 {
+  lib,
+  config,
+  ...
+}: let
+  cfg = config.hyprvibe;
+in {
   options.hyprvibe.enable = lib.mkEnableOption "Enable the base Hyprvibe desktop experience";
 
   imports = [
     ./packages.nix
     ./desktop.nix
+    ./dms.nix
     ./hyprland.nix
     ./waybar.nix
     ./shell.nix
@@ -16,6 +19,12 @@ in
     ./user.nix
     ./power.nix
     ./nebula.nix
+    ./syncthing.nix
+    ./agent-configs.nix
+    ./opencode.nix
+    ./opencode2-client.nix
+    ./hypruse.nix
+    ./herdr.nix
   ];
 
   config = lib.mkIf cfg.enable {
@@ -33,6 +42,7 @@ in
       openssh.enable = true;
     };
     hyprvibe.system.enable = true;
+    hyprvibe.opencode.enable = true;
     hyprvibe.packages = {
       enable = true;
       base.enable = true;

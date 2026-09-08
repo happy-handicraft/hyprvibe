@@ -1,0 +1,35 @@
+/* Nixvader stealth theme. Theme profiles are generated and applied by Nix. */
+window#waybar {
+  background: rgba(8, 11, 16, 0.88);
+  color: #c7d0da;
+  border-bottom: 1px solid #5f9ea0;
+}
+#workspaces { padding: 0 6px; background: transparent; border: none; margin: 0 3px; }
+#workspaces button { padding: 3px 8px; color: #657383; border: 1px solid transparent; margin: 2px; border-radius: 5px; }
+#workspaces button.active { color: #080b10; background: #5f9ea0; border-color: #8fb8b8; }
+#workspaces button.urgent { background: #b8646b; color: #080b10; }
+#clock, #battery, #backlight, #bluetooth, #cpu, #memory, #network,
+#pulseaudio, #tray, #idle_inhibitor, #window, #mpris, #custom-codexbar {
+  padding: 0 8px;
+}
+#custom-codexbar { margin: 0 5px; color: #8fb8b8; }
+#custom-codexbar.critical { color: #b8646b; }
+#custom-codexbar.high { color: #c49a52; }
+#custom-codexbar.mid { color: #c49a52; }
+#custom-codexbar.low { color: #8fb8b8; }
+#clock { color: #8fb8b8; }
+#network { color: #8fb8b8; }
+#battery.warning { color: #c49a52; }
+#battery.critical { color: #b8646b; }
+#battery.charging, #battery.plugged { color: #8fb8b8; }
+#backlight { color: #9aaebe; }
+#bluetooth { color: #7fabb8; }
+#pulseaudio.muted { color: #657383; }
+.modules-left > widget, .modules-center > widget, .modules-right > widget {
+  background-color: rgba(16, 21, 28, 0.72);
+  border: 1px solid rgba(57, 67, 79, 0.55);
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: 2px 3px;
+}
+tooltip { background: #080b10; color: #c7d0da; border: 1px solid #5f9ea0; }

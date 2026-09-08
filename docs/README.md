@@ -2,6 +2,11 @@
 
 A flake-based NixOS configuration with Hyprland window manager support.
 
+Host operations:
+
+- [Nixvader handoff and resume workbook](NIXVADER_HANDOFF.md)
+- [Colony opt-in remote builder](COLONY_REMOTE_BUILDER.md)
+
 Tuned to squeeze every bit of performance out of your system. It's not in a drop-and-go state, but if you're willing to tweak a few things *(like replacing my username)*, you should be mostly set. 
 
 There are a few ways we could improve for easier sharing. I'd appreciate suggestions/PRs. 
@@ -16,7 +21,7 @@ There are a few ways we could improve for easier sharing. I'd appreciate suggest
 │   └── rvbee/
 │       ├── system.nix           # Main system configuration
 │       ├── hardware-configuration.nix  # Hardware-specific config
-│       ├── hyprland.conf        # Hyprland window manager config
+│       ├── hyprland.lua         # Hyprland window manager config
 │       └── waybar.json          # Waybar status bar config
 └── README.md                    # This file
 ```
@@ -34,8 +39,9 @@ There are a few ways we could improve for easier sharing. I'd appreciate suggest
 
 - **Lock screen and idle**
   - `hyprlock` with PAM enabled (`security.pam.services.hyprlock = { };`)
-  - `hypridle` drives DPMS/off-on and lock-before-sleep
+  - `hypridle` handles lock-before-sleep; displays are only powered off by explicit keybindings/session lock
   - Wallpaper templated into `hyprpaper` and `hyprlock` via activation script
+  - See [Nixstation Display Recovery](NIXSTATION_DISPLAY_RECOVERY.md) for safe runtime checks and the known `DP-3` black-after-wake failure
 
 - **Waybar + desktop helpers**
   - Waybar modules for Hyprland workspaces/window, audio, network, CPU/Mem, brightness, AMD GPU, weather, BTC price, public IP, clock, tray
@@ -141,7 +147,7 @@ There are a few ways we could improve for easier sharing. I'd appreciate suggest
 | Launchers | SUPER+S | Slack & Telegram | Launch communication apps (monitor-specific) |
 | Brightness | SUPER+B | Brightness menu | `~/.local/bin/rofi-brightness` (launcher-backed menu) |
 | Session | SUPER+M | Exit Hyprland | `exit` |
-| Session | SUPER+L | Lock | `hyprlock` |
+| Session | SUPER+L | Lock and screen off | `loginctl lock-session`, then DPMS off |
 | Rofi | SUPER+SHIFT+SPACE | (unused) | previously rofi drun |
 | Rofi | SUPER+ALT+SPACE | (unused) | previously rofi file browser |
 | Rofi | SUPER+CTRL+SPACE | (unused) | previously rofi keys |
@@ -157,8 +163,8 @@ There are a few ways we could improve for easier sharing. I'd appreciate suggest
 | Special ws | SUPER+SHIFT+S | Move to special | `movetoworkspace special:magic` |
 | Mouse | SUPER + LMB drag | Move window | `bindm … movewindow` |
 | Mouse | SUPER + RMB drag | Resize window | `bindm … resizewindow` |
-| Display power | SUPER+SHIFT+L | Screen off (DPMS) | `hyprctl dispatch dpms off` |
-| Display power | SUPER+ALT+L | Screen on (DPMS) | `hyprctl dispatch dpms on` |
+| Display power | SUPER+SHIFT+L | Screen off (DPMS) | `hyprctl dispatch 'hl.dsp.dpms({ action = "off" })'` |
+| Display power | SUPER+ALT+L | Wake monitors | `~/.config/hypr/scripts/wake-monitors.sh` |
 | Screenshot | Print | Region to clipboard | `grim -g "$(slurp)" - | wl-copy` |
 | Screenshot | SHIFT+Print | Region to file | `grim -g "$(slurp)" ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png` |
 | Audio | XF86AudioRaiseVolume | Volume up +5% | `wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+` |

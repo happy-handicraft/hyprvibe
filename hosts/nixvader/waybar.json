@@ -1,0 +1,104 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 30,
+  "spacing": 4,
+  "modules-left": ["hyprland/workspaces", "hyprland/window", "mpris"],
+  "modules-right": [
+    "pulseaudio",
+    "network",
+    "cpu",
+    "memory",
+    "battery",
+    "custom/codexbar",
+    "tray",
+    "bluetooth",
+    "idle_inhibitor",
+    "backlight",
+    "clock"
+  ],
+  "hyprland/workspaces": {
+    "disable-scroll": true,
+    "all-outputs": true,
+    "format": "{name}"
+  },
+  "hyprland/window": {
+    "format": "{}",
+    "max-length": 50
+  },
+  "mpris": {
+    "format": "{player_icon} {dynamic}",
+    "format-paused": "{status_icon} {dynamic}",
+    "player-icons": {"default": "▶"},
+    "status-icons": {"paused": "⏸"},
+    "on-click": "playerctl -p playerctld play-pause",
+    "on-scroll-up": "playerctl -p playerctld next",
+    "on-scroll-down": "playerctl -p playerctld previous"
+  },
+  "pulseaudio": {
+    "format": "  {volume}%",
+    "format-muted": "  muted",
+    "on-click": "pavucontrol"
+  },
+  "network": {
+    "format-wifi": "  {essid} {signalStrength}%",
+    "format-ethernet": "󰈀  {ipaddr}/{cidr}",
+    "format-disconnected": "  offline",
+    "on-click": "nm-connection-editor"
+  },
+  "cpu": {"format": "  {usage}%"},
+  "memory": {"format": "  {percentage}%"},
+  "battery": {
+    "states": {"warning": 30, "critical": 15},
+    "format": "  {capacity}%",
+    "format-charging": "  {capacity}%",
+    "format-plugged": "  {capacity}%"
+  },
+  "tray": {"spacing": 10},
+  "bluetooth": {
+    "format": "  {status}",
+    "format-connected": "  {num_connections}",
+    "format-off": "  off",
+    "on-click": "blueman-manager"
+  },
+  "idle_inhibitor": {
+    "format": "{icon}",
+    "format-icons": {"activated": "", "deactivated": ""}
+  },
+  "backlight": {
+    "device": "intel_backlight",
+    "format": "󰃟  {percent}%",
+    "on-scroll-up": "brightnessctl set +5%",
+    "on-scroll-down": "brightnessctl set 5%-"
+  },
+  "custom/codexbar": {
+    "return-type": "json",
+    "exec": "codexbar --format '{session_pct}% {session_pace}'",
+    "interval": 300,
+    "tooltip": true,
+    "on-click": "xdg-open https://chatgpt.com/codex/settings/usage"
+  },
+  "clock": {
+    "format": "{0:%I:%M %p} ",
+    "tooltip-format": "<big>{0:%Y %B}</big>\n<tt><small>{calendar}</small></tt>\n\n<b>US</b>\nPacific: {0:%I:%M %p %Z}\n{tz_list}",
+    "timezone-tooltip-format": "{0:%Z}: {0:%I:%M %p}",
+    "timezones": [
+      "America/Los_Angeles",
+      "America/Denver",
+      "America/New_York",
+      "Europe/London",
+      "UTC"
+    ],
+    "calendar": {
+      "format": {
+        "today": "<span color='#ffe86b'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-scroll-up": "shift_up",
+      "on-scroll-down": "shift_down",
+      "on-click-right": "mode"
+    },
+    "format-alt": "{0:%Y-%m-%d}"
+  }
+}

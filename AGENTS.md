@@ -1,6 +1,7 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (beads) for issue tracking. In a fresh clone, run
+`chmod 700 .beads && bd bootstrap` before `bd onboard`.
 
 ## Quick Reference
 
@@ -9,8 +10,29 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --status in_progress  # Claim work
 bd close <id>         # Complete work
-bd sync               # Sync with git
+bd dolt pull          # Pull shared issue history
+bd dolt push          # Push shared issue history
 ```
+
+## Nixstation Runtime Safety
+
+- Never run `nixos-rebuild switch` or `nixos-rebuild test` on `nixstation`
+  without Chris's explicit permission.
+- This is critical when working on Wayland, Hyprland, display manager,
+  graphics, monitor, DPMS, lock-screen, or user-session configuration.
+- Prefer `nix flake check`, targeted builds, and `nixos-rebuild boot` for
+  staged changes unless Chris asks for a live activation.
+
+## Colony Remote Builder Safety
+
+- Colony runs production Matrix. Its containerized Nix builder is an opt-in
+  accelerator, never Nixvader's automatic or mandatory builder.
+- Use `colony-build` only for an explicitly selected heavyweight build. Before
+  starting one, check for active coordinated builds on Nixvader, Nomad, Nixobs,
+  or Colony; never compete with or interrupt an existing build for a smoke test.
+- Preserve the pinned host keys, SSH jump route, and explicit-only behavior in
+  `modules/colony-builder-client.nix`. Read
+  `docs/COLONY_REMOTE_BUILDER.md` before changing or operating it.
 
 ## Landing the Plane (Session Completion)
 
@@ -23,8 +45,9 @@ bd sync               # Sync with git
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
+   bd dolt pull
    git pull --rebase
-   bd sync
+   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
@@ -37,4 +60,3 @@ bd sync               # Sync with git
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
-

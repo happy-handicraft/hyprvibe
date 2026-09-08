@@ -10,25 +10,53 @@ let
   userHome = user.home;
   userName = user.name;
   userGroup = user.group;
-  defaultMain = ../../configs/hyprland-default.conf;
+  defaultMain = ../../configs/hyprland-default.lua;
   defaultPaper = ../../configs/hyprpaper-default.conf;
   defaultLock = ../../configs/hyprlock-default.conf;
   defaultIdle = ../../configs/hypridle-default.conf;
   defaultWallpaper = ../../wallpapers/aishot-2602.jpg;
+  mainConfig = if cfg.mainConfig != null then cfg.mainConfig else defaultMain;
+  localConfig = pkgs.writeText "hyprland-local.lua" (
+    lib.optionalString (cfg.monitorsFile != null) ''
+      require("hyprland-monitors")
+    ''
+    + lib.optionalString cfg.amd.enable ''
+      -- AMD-specific overrides (opt-in)
+      hl.env("AMD_VULKAN_ICD", "RADV")
+      hl.env("MESA_LOADER_DRIVER_OVERRIDE", "radeonsi")
+    ''
+  );
+  hyprlandConfigDir = pkgs.runCommand "hyprvibe-hyprland-config" { } ''
+    mkdir -p "$out"
+    cp ${mainConfig} "$out/hyprland.lua"
+    cp ${../../configs/hyprland-base.lua} "$out/hyprland-base.lua"
+    cp ${localConfig} "$out/hyprland-local.lua"
+    ${lib.optionalString (cfg.monitorsFile != null) ''
+      cp ${cfg.monitorsFile} "$out/hyprland-monitors.lua"
+    ''}
+  '';
 in
 {
   options.hyprvibe.hyprland = {
     enable = lib.mkEnableOption "Hyprland base setup";
     waybar.enable = lib.mkEnableOption "Waybar autostart integration";
+    shellBackend = lib.mkOption {
+      type = lib.types.enum [
+        "legacy"
+        "dms"
+      ];
+      default = "legacy";
+      description = "Desktop shell started with Hyprland. The legacy backend uses Waybar and SwayNC; dms uses DankMaterialShell.";
+    };
     monitorsFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
-      description = "Per-host Hyprland monitors config file path";
+      description = "Per-host Hyprland Lua monitor configuration path";
     };
     mainConfig = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
-      description = "Path to host's hyprland.conf";
+      description = "Path to host's hyprland.lua";
     };
     wallpaper = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
@@ -77,42 +105,19 @@ in
       xwayland.enable = true;
     };
 
+    # Load the complete immutable composition directly. The home-directory
+    # links below are for inspection and editing convenience, not startup.
+    environment.sessionVariables = {
+      HYPRLAND_CONFIG = "${hyprlandConfigDir}/hyprland.lua";
+      HYPRVIBE_SHELL_BACKEND = cfg.shellBackend;
+    };
+
     # Install base config; fall back to shared defaults where host options are not provided
     system.activationScripts.hyprlandBase = lib.mkAfter ''
       set -u  # Fail on undefined variables, but allow commands to fail
       trap 'echo "[hyprvibe][hyprland] WARNING at line $LINENO - continuing anyway"' ERR
       echo "[hyprvibe][hyprland] starting activation"
-      mkdir -p ${userHome}/.config/hypr
-      # Remove existing symlinks/files if they exist
-      rm -f ${userHome}/.config/hypr/hyprland-base.conf
-      ln -sf ${../../configs/hyprland-base.conf} ${userHome}/.config/hypr/hyprland-base.conf
-      echo "[hyprvibe][hyprland] linked base config -> ${userHome}/.config/hypr/hyprland-base.conf"
-      ${lib.optionalString (cfg.monitorsFile != null) ''
-        # Extract the actual filename from the store path (strip hash prefix if present)
-        # Nix store paths have format: /nix/store/HASH-filename
-        # Use a pattern that matches the source file path to determine the target filename
-        # For nixbook: hyprland-monitors-nixbook.conf
-        # For rvbee: hyprland-monitors-rvbee.conf or hyprland-monitors-rvbee-120hz.conf
-        # For nixstation: hyprland-monitors-nixstation.conf
-        # Extract filename by removing hash prefix from basename
-        MONITORS_SOURCE="${cfg.monitorsFile}"
-        MONITORS_BASENAME=$(basename "$MONITORS_SOURCE")
-        # Pattern: remove 32-character hash prefix followed by dash
-        MONITORS_FILENAME=$(echo "$MONITORS_BASENAME" | ${pkgs.gnused}/bin/sed -E 's/^[a-z0-9]{32}-//')
-        # If sed didn't change anything (not a store path), use basename as-is
-        if [ "$MONITORS_FILENAME" = "$MONITORS_BASENAME" ]; then
-          MONITORS_FILENAME="$MONITORS_BASENAME"
-        fi
-        rm -f ${userHome}/.config/hypr/"$MONITORS_FILENAME"
-        ln -sf "$MONITORS_SOURCE" ${userHome}/.config/hypr/"$MONITORS_FILENAME"
-        echo "[hyprvibe][hyprland] linked monitors -> ${userHome}/.config/hypr/$MONITORS_FILENAME"
-      ''}
-      # Main config - ensure we remove any existing file/symlink before creating symlink
-      rm -f ${userHome}/.config/hypr/hyprland.conf
-      MAIN_CONFIG_SOURCE="${if cfg.mainConfig != null then cfg.mainConfig else defaultMain}"
-      # Create symlink (this is safe even if source and destination resolve to same file)
-      ln -sf "$MAIN_CONFIG_SOURCE" ${userHome}/.config/hypr/hyprland.conf
-      echo "[hyprvibe][hyprland] linked main -> ${userHome}/.config/hypr/hyprland.conf"
+      install -d -m0755 -o ${userName} -g ${userGroup} ${userHome}/.config/hypr
       # Wallpaper-backed configs
       ${pkgs.gnused}/bin/sed "s#__WALLPAPER__#${
         if cfg.wallpaper != null then cfg.wallpaper else defaultWallpaper
@@ -131,16 +136,6 @@ in
       ln -sf ${
         if cfg.hypridleConfig != null then cfg.hypridleConfig else defaultIdle
       } ${userHome}/.config/hypr/hypridle.conf
-      # Local overrides file (always present; may be empty)
-      : > ${userHome}/.config/hypr/hyprland-local.conf
-      ${lib.optionalString cfg.amd.enable ''
-        cat > ${userHome}/.config/hypr/hyprland-local.conf << 'EOF'
-        # AMD-specific overrides (opt-in)
-        env = AMD_VULKAN_ICD,RADV
-        env = MESA_LOADER_DRIVER_OVERRIDE,radeonsi
-        EOF
-        echo "[hyprvibe][hyprland] wrote AMD env overrides to hyprland-local.conf"
-      ''}
       echo "[hyprvibe][hyprland] linked hypridle.conf"
       ${lib.optionalString (cfg.scriptsDir != null) ''
         mkdir -p ${userHome}/.config/hypr/scripts
@@ -164,6 +159,7 @@ in
       # Only chown regular files/directories, not symlinks
       # Use find with -print0 and xargs for better error handling, or fallback to simple chown if find fails
       if [ -d ${userHome}/.config/hypr ]; then
+        chown ${userName}:${userGroup} ${userHome}/.config/hypr
         find ${userHome}/.config/hypr -mindepth 1 -maxdepth 1 -not -type l -print0 2>/dev/null | xargs -0 -r chown -R ${userName}:${userGroup} 2>/dev/null || true
         # Fix ownership of symlinks themselves (not their targets)
         find ${userHome}/.config/hypr -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null | xargs -0 -r chown -h ${userName}:${userGroup} 2>/dev/null || true
@@ -175,9 +171,10 @@ in
     # exec-once during session startup and makes debugging easy via journalctl.
     systemd.user.services.hyprvibe-hyprpaper = lib.mkIf (cfg.wallpaperBackend == "hyprpaper") {
       description = "Hyprvibe: hyprpaper wallpaper daemon";
+      unitConfig.ConditionUser = userName;
       after = [ "hyprvibe-setup-hyprland.service" ];
       wants = [ "hyprvibe-setup-hyprland.service" ];
-      wantedBy = [ "default.target" ];
+      wantedBy = lib.optionals (cfg.shellBackend == "legacy") [ "default.target" ];
       serviceConfig = {
         Type = "simple";
         ExecStart = "${pkgs.writeShellScript "hyprvibe-start-hyprpaper" ''
@@ -237,14 +234,43 @@ in
     # Fallback wallpaper backend that doesn't depend on hyprpaper's IPC/config semantics.
     systemd.user.services.hyprvibe-swaybg = lib.mkIf (cfg.wallpaperBackend == "swaybg") {
       description = "Hyprvibe: swaybg wallpaper";
+      unitConfig.ConditionUser = userName;
       after = [ "hyprvibe-setup-hyprland.service" ];
       wants = [ "hyprvibe-setup-hyprland.service" ];
-      wantedBy = [ "default.target" ];
+      wantedBy = lib.optionals (cfg.shellBackend == "legacy") [ "default.target" ];
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${pkgs.swaybg}/bin/swaybg -i ${
-          if cfg.wallpaper != null then cfg.wallpaper else defaultWallpaper
-        } -m fill";
+        ExecStart = pkgs.writeShellScript "hyprvibe-start-swaybg" ''
+          set -euo pipefail
+
+          rundir="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+          pick_wayland_display() {
+            if [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+              echo "''${WAYLAND_DISPLAY}"
+              return 0
+            fi
+            local sock
+            sock="$(ls -1 "$rundir"/wayland-* 2>/dev/null | head -n1 || true)"
+            [ -n "$sock" ] || return 1
+            basename "$sock"
+          }
+
+          for _ in $(seq 1 100); do
+            wl="$(pick_wayland_display || true)"
+            if [ -n "$wl" ] && [ -S "$rundir/$wl" ]; then
+              export XDG_RUNTIME_DIR="$rundir"
+              export WAYLAND_DISPLAY="$wl"
+              exec ${pkgs.swaybg}/bin/swaybg -i ${
+                if cfg.wallpaper != null then cfg.wallpaper else defaultWallpaper
+              } -m fill
+            fi
+            sleep 0.1
+          done
+
+          echo "[hyprvibe][swaybg] timeout waiting for Wayland readiness" >&2
+          exit 1
+        '';
         Restart = "on-failure";
         RestartSec = 1;
       };
@@ -253,6 +279,7 @@ in
     # Move setup to systemd --user oneshot to avoid blocking stage-2
     systemd.user.services.hyprvibe-setup-hyprland = {
       description = "Hyprvibe: setup Hyprland configs in user home";
+      unitConfig.ConditionUser = userName;
       wantedBy = [ "default.target" ];
       serviceConfig = {
         Type = "oneshot";
@@ -261,16 +288,19 @@ in
           set -euo pipefail
           echo "[hyprvibe][hyprland] starting user setup"
           mkdir -p ${userHome}/.config/hypr
-          rm -f ${userHome}/.config/hypr/hyprland-base.conf
-          ln -sf ${../../configs/hyprland-base.conf} ${userHome}/.config/hypr/hyprland-base.conf
-          ${lib.optionalString (cfg.monitorsFile != null) ''
-            rm -f ${userHome}/.config/hypr/$(basename ${cfg.monitorsFile})
-            ln -sf ${cfg.monitorsFile} ${userHome}/.config/hypr/$(basename ${cfg.monitorsFile})
-          ''}
           rm -f ${userHome}/.config/hypr/hyprland.conf
-          ln -sf ${
-            if cfg.mainConfig != null then cfg.mainConfig else defaultMain
-          } ${userHome}/.config/hypr/hyprland.conf
+          rm -f ${userHome}/.config/hypr/hyprland-base.conf
+          rm -f ${userHome}/.config/hypr/hyprland-local.conf
+          rm -f ${userHome}/.config/hypr/hyprland.lua
+          rm -f ${userHome}/.config/hypr/hyprland-base.lua
+          rm -f ${userHome}/.config/hypr/hyprland-local.lua
+          rm -f ${userHome}/.config/hypr/hyprland-monitors.lua
+          ln -sf ${hyprlandConfigDir}/hyprland.lua ${userHome}/.config/hypr/hyprland.lua
+          ln -sf ${hyprlandConfigDir}/hyprland-base.lua ${userHome}/.config/hypr/hyprland-base.lua
+          ln -sf ${hyprlandConfigDir}/hyprland-local.lua ${userHome}/.config/hypr/hyprland-local.lua
+          ${lib.optionalString (cfg.monitorsFile != null) ''
+            ln -sf ${hyprlandConfigDir}/hyprland-monitors.lua ${userHome}/.config/hypr/hyprland-monitors.lua
+          ''}
           # Ensure files are writable (previous generations may have left them read-only)
           rm -f ${userHome}/.config/hypr/hyprpaper.conf ${userHome}/.config/hypr/hyprlock.conf
           # Render wallpaper path into hyprpaper config (templates use 0.8.0+ block syntax with monitors defined inline)
@@ -288,14 +318,6 @@ in
           ln -sf ${
             if cfg.hypridleConfig != null then cfg.hypridleConfig else defaultIdle
           } ${userHome}/.config/hypr/hypridle.conf
-          : > ${userHome}/.config/hypr/hyprland-local.conf
-          ${lib.optionalString cfg.amd.enable ''
-            cat > ${userHome}/.config/hypr/hyprland-local.conf << 'EOF'
-            # AMD-specific overrides (opt-in)
-            env = AMD_VULKAN_ICD,RADV
-            env = MESA_LOADER_DRIVER_OVERRIDE,radeonsi
-            EOF
-          ''}
           ${lib.optionalString (cfg.scriptsDir != null) ''
             mkdir -p ${userHome}/.config/hypr/scripts
             cp -f ${cfg.scriptsDir}/*.sh ${userHome}/.config/hypr/scripts/ 2>/dev/null || true

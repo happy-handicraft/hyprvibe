@@ -4,15 +4,93 @@
   pkgs,
   hyprland,
   ...
-}:
-
-let
+}: let
   # Hyprvibe user options (from modules/shared/user.nix)
   userName = config.hyprvibe.user.name;
   userGroup = config.hyprvibe.user.group;
   homeDir = config.hyprvibe.user.home;
 
-  # Package groups - preserving your existing packages
+  # Remote-only Hermes Desktop launcher + .desktop entry. Shared helper at
+  # pkgs/hermes-desktop-nomad.nix; reused by hosts/nixvader/system.nix.
+  hermesDesktopRemoteHelper = pkgs.callPackage ../../pkgs/hermes-desktop-nomad.nix {hermes-desktop = pkgs.hermes-desktop;};
+  hermesDesktopRemote = hermesDesktopRemoteHelper.wrapper;
+  hermesDesktopRemoteEntry = hermesDesktopRemoteHelper.entry;
+
+  basiliskII =
+    pkgs.runCommand "basiliskii-wrapped-${pkgs.basiliskii.version}"
+    {
+      nativeBuildInputs = [pkgs.makeWrapper];
+    }
+    ''
+      mkdir -p "$out/bin" "$out/share"
+      ln -s ${pkgs.basiliskii}/share/* "$out/share/"
+
+      makeWrapper ${lib.getExe pkgs.basiliskii} "$out/bin/BasiliskII" \
+        --prefix XDG_DATA_DIRS : "${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}" \
+        --prefix XDG_DATA_DIRS : "${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}" \
+        --prefix XDG_DATA_DIRS : "${pkgs.adwaita-icon-theme}/share" \
+        --prefix XDG_DATA_DIRS : "${pkgs.hicolor-icon-theme}/share" \
+        --prefix XDG_DATA_DIRS : "${pkgs.shared-mime-info}/share" \
+        --set GDK_PIXBUF_MODULE_FILE "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+    '';
+
+  voicePeFirmwareTools = pkgs.callPackage ../../pkgs/voice-pe-firmware-tools.nix {};
+  voicePeHermesBridge = pkgs.callPackage ../../pkgs/voice-pe-hermes-bridge.nix {};
+
+  basiliskIIBridgeTap = pkgs.writeShellScriptBin "basilisk-ii-bridge-tap" ''
+    set -euo pipefail
+
+    if [ "$#" -ne 2 ]; then
+      echo "Usage: $0 IFACE up|down" >&2
+      exit 2
+    fi
+
+    iface="$1"
+    action="$2"
+    bridge="br0"
+    ip="${pkgs.iproute2}/bin/ip"
+    sudo="/run/wrappers/bin/sudo"
+    log_dir="''${XDG_CACHE_HOME:-$HOME/.cache}/basiliskii"
+    log_file="$log_dir/bridge-tap.log"
+
+    ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
+
+    log() {
+      ${pkgs.coreutils}/bin/printf '[%s] %s\n' "$(${pkgs.coreutils}/bin/date --iso-8601=seconds)" "$*" >>"$log_file"
+    }
+
+    run() {
+      if [ "$(${pkgs.coreutils}/bin/id -u)" -eq 0 ]; then
+        log "run as root: $*"
+        "$@" >>"$log_file" 2>&1
+      else
+        log "run direct: $*"
+        "$@" >>"$log_file" 2>&1 || {
+          log "direct failed; retry with sudo: $*"
+          "$sudo" "$@" >>"$log_file" 2>&1
+        }
+      fi
+    }
+
+    case "$action" in
+      up)
+        log "up $iface -> $bridge"
+        "$ip" link show dev "$bridge" >/dev/null
+        run "$ip" link set dev "$iface" up
+        run "$ip" link set dev "$iface" master "$bridge"
+        ;;
+      down)
+        log "down $iface"
+        run "$ip" link set dev "$iface" nomaster 2>/dev/null || true
+        run "$ip" link set dev "$iface" down 2>/dev/null || true
+        ;;
+      *)
+        echo "Unknown action: $action" >&2
+        exit 2
+        ;;
+    esac
+  '';
+
   packages = with pkgs; [
     git
     gcc
@@ -37,11 +115,15 @@ let
     lazygit
     kitty
     oh-my-posh
+    hermesDesktopRemote
+    hermesDesktopRemoteEntry
+    hermes-desktop
+    voicePeFirmwareTools
+    voicePeHermesBridge
     lazydocker
     opencode
     android-tools
     yarn
-    nodejs_20
     qemu
     speechd
     roboto
@@ -50,6 +132,8 @@ let
     junction
     distrobox
     ispell
+    basiliskII
+    basiliskIIBridgeTap
     gnumake
     mesa-demos
     roc-toolkit
@@ -63,6 +147,7 @@ let
     lshw
     jack2
     obs-studio
+    (callPackage ../../pkgs/obs-replay-clips.nix {})
     obs-studio-plugins.wlrobs
     obs-studio-plugins.waveform
     obs-studio-plugins.obs-pipewire-audio-capture
@@ -105,7 +190,7 @@ let
     })
     qjackctl
     qpwgraph
-    x32edit
+    (callPackage ../../pkgs/x32edit-buffered.nix {})
     easyeffects
     wayfarer
     libepoxy
@@ -119,19 +204,8 @@ let
     libarchive
     libzip
     unrar
-    pzip
     lrzip
     kdePackages.ark
-    kdePackages.yakuake
-    kdePackages.kdenlive
-    kdePackages.ktorrent
-    krita
-    kdePackages.discover
-    kdePackages.kfind
-    kdePackages.kleopatra
-    kdePackages.filelight
-    kdePackages.isoimagewriter
-    kdePackages.partitionmanager
 
     ghostty
     htop
@@ -151,6 +225,8 @@ let
     lm_sensors
     tor-browser
     wmctrl
+    codex
+    codexbar
     waybar
     wl-clipboard
     grim
@@ -170,7 +246,6 @@ let
     playerctl
     kdePackages.kwallet
     kdePackages.kwallet-pam
-    kdePackages.kate
     fd
     eza
     fzf
@@ -209,7 +284,6 @@ let
     usbmuxd
     magic-wormhole
     adb-sync
-    jmtpfs
     nextcloud-client
     gnome-firmware
     usbutils
@@ -239,7 +313,6 @@ let
     fuse
     fuse3
     appimage-run
-    pop-gtk-theme
     cool-retro-term
     vscode-fhs
     logitech-udev-rules
@@ -247,11 +320,8 @@ let
     solaar
     gtop
     wine-wayland
-    bottles-unwrapped
     pwvucontrol
-    pipecontrol
     wireplumber
-    kdePackages.plasma-browser-integration
     qownnotes
 
     btrfs-progs
@@ -266,9 +336,9 @@ let
     libation
     audible-cli
     chromium
+    chatgpt-desktop
     gnome-calculator
     gnome-keyring
-    libreoffice
     xournalpp
     localsend
     _1password-gui
@@ -292,29 +362,11 @@ let
     vulkan-tools
     playonlinux
 
-    kdePackages.dolphin
-    kdePackages.kio-extras
-    kdePackages.kio-fuse
-    kdePackages.kio-admin
-    kdePackages.kdenetwork-filesharing
-    kdePackages.ffmpegthumbs
-    kdePackages.kdegraphics-thumbnailers
-    kdePackages.kimageformats
-    kdePackages.konsole
-    kdePackages.systemsettings
-    kdePackages.kinfocenter
-    kdePackages.kfilemetadata
-    kdePackages.baloo
-    kdePackages.baloo-widgets
-    kdePackages.kservice
-    kdePackages.kded
-    kdePackages.kio-extras-kf5
     shared-mime-info
     desktop-file-utils
     thunar
     tumbler
     gvfs
-    tokyonight-gtk-theme
     papirus-icon-theme
     bibata-cursors
     evince
@@ -327,441 +379,6 @@ let
     dialect
     drawing
   ];
-
-  multimedia = with pkgs; [
-    mpv
-    vlc
-    ffmpeg-full
-    lame
-    reaper
-    (pkgs.writeShellScriptBin "reaper-x11" ''
-      # Ensure an X11 DISPLAY is set; avoid Nix interpolation issues
-      if [ -z "$DISPLAY" ]; then
-        export DISPLAY=:0
-      fi
-      exec env -u WAYLAND_DISPLAY -u QT_QPA_PLATFORM -u GDK_BACKEND -u XDG_SESSION_TYPE \
-        QT_QPA_PLATFORM=xcb \
-        GDK_BACKEND=x11 \
-        XDG_SESSION_TYPE=x11 \
-        reaper -newinst "$@"
-    '')
-    (pkgs.makeDesktopItem {
-      name = "reaper-x11";
-      desktopName = "REAPER (X11)";
-      comment = "Launch REAPER using X11/XWayland for Wayland compositors";
-      exec = "reaper-x11 %F";
-      terminal = false;
-      categories = [
-        "AudioVideo"
-        "Audio"
-        "Midi"
-      ];
-      icon = "reaper";
-      type = "Application";
-    })
-    qjackctl
-    qpwgraph
-    x32edit
-    easyeffects
-    wayfarer
-    obs-studio
-    obs-studio-plugins.obs-pipewire-audio-capture
-    libepoxy
-    audacity
-    ffmpegthumbnailer
-    gnome.gvfs
-    imv
-    # Additional multimedia from your current config
-    v4l-utils
-    v4l2-relayd
-    libv4l
-    roc-toolkit
-    libarchive
-    libzip
-    unrar
-    pzip
-    lrzip
-    kdePackages.ark
-    kdePackages.yakuake
-    kdePackages.kdenlive
-    kdePackages.ktorrent
-    krita
-    kdePackages.discover
-    kdePackages.kfind
-    kdePackages.kleopatra
-    kdePackages.filelight
-    kdePackages.isoimagewriter
-    kdePackages.partitionmanager
-  ];
-
-  utilities = with pkgs; [
-    ghostty
-    htop
-    btop
-    fastfetch
-    nmap
-    mosh
-    yt-dlp
-    zip
-    unzip
-    gnupg
-    # ADB command (systemd 258+ handles uaccess rules; `programs.adb` is deprecated)
-    android-tools
-    restic
-    autorestic
-    restique
-    hddtemp
-    smartmontools
-    iotop
-    lm_sensors
-    tree
-    lsof
-    lshw
-    tor-browser
-    wmctrl
-    oh-my-posh
-    # Hyprland utilities
-    waybar
-    wl-clipboard
-    grim
-    slurp
-    swappy
-    wf-recorder
-    wlroots
-    xdg-desktop-portal-hyprland
-    xdg-desktop-portal-gtk
-    xdg-utils
-    kdePackages.polkit-kde-agent-1
-    polkit_gnome
-    qt6.qtbase
-    qt6.qtwayland
-    cliphist
-    brightnessctl
-    playerctl
-    kdePackages.kwallet
-    kdePackages.kwallet-pam
-    kdePackages.kate
-    fd
-    eza
-    fzf
-    ripgrep
-    zoxide
-    bat
-    jq
-    xmlstarlet
-    tldr
-    plocate
-    less
-    whois
-    bash-completion
-    pamixer
-    wiremix
-    fcitx5
-    fcitx5-gtk
-    kdePackages.fcitx5-qt
-    nautilus
-    libqalculate
-    swaybg
-    swayosd
-    rofi
-    # qt6ct  # Temporarily disabled - pulls in qgnomeplatform which has build failure in current nixpkgs
-    pavucontrol
-    networkmanagerapplet
-    atuin
-    ddcutil
-    curl
-    openssh
-    glib-networking
-    rclone
-    # rclone-ui  # Disabled: build fails due to tao-macros crate unavailable
-    librclone
-    syncrclone
-    git-annex-remote-rclone
-    # Additional utilities from your current config
-    usbmuxd
-    magic-wormhole
-    adb-sync
-    jmtpfs
-    nextcloud-client
-    gnome-firmware
-    usbutils
-    parted
-    gparted
-    libisoburn # Provides xorriso
-    dvdplusrwtools # Provides growisofs
-    wayland-protocols
-    wayland-scanner
-    wayland
-    avahi
-    mesa
-    libffi
-    libevdev
-    libcap
-    libdrm
-    libxrandr
-    libxcb
-    libevdev
-    libpulseaudio
-    libx11
-    libxfixes
-    libva
-    libvdpau
-    moonlight-qt
-    # sunshine  # Temporarily disabled - build fails fetching Boost dependencies
-    virt-manager
-    fuse
-    fuse3
-    appimage-run
-    pop-gtk-theme
-    cool-retro-term
-    gparted
-    vscode-fhs
-    logitech-udev-rules
-    ltunify
-    solaar
-    gtop
-    wine-wayland
-    bottles-unwrapped
-    # rustdesk-flutter  # disabled: build failure
-    pwvucontrol
-    pipecontrol
-    wireplumber
-    kdePackages.plasma-browser-integration
-    nixfmt
-    qownnotes
-  ];
-
-  systemTools = with pkgs; [
-    btrfs-progs
-    btrfs-snap
-    pciutils
-    cifs-utils
-    samba
-    fuse
-    fuse3
-    docker-compose
-    # Additional system tools from your current config
-    cifs-utils
-    samba
-    distrobox
-  ];
-
-  applications = with pkgs; [
-    firefox
-    brave
-    google-chrome
-    nextcloud-client
-    trayscale
-    # maestral-gui  # Temporarily disabled - pulls in non-overridden maestral which fails tests
-    qownnotes
-    libation
-    audible-cli
-    chromium
-    gnome-calculator
-    gnome-keyring
-    libreoffice
-    kdePackages.kdenlive
-    xournalpp
-    localsend
-    _1password-gui
-    _1password-cli
-    hyprpicker
-    hyprshot
-    wl-clip-persist
-    hyprpaper
-    hypridle
-    hyprlock
-    hyprsunset
-    yazi
-    starship
-    # rclone-browser  # Temporarily disabled due to build issues
-    # Additional applications from your current config
-    maestral
-    # maestral-gui  # Temporarily disabled - pulls in non-overridden maestral which fails tests
-    steam-run
-    steam
-    appimage-run
-    adb-sync
-    gnumake
-    unzip
-    zip
-    gnupg
-    pkgs.restic
-    pkgs.autorestic
-    pkgs.restique
-    pkgs.nextcloud-client
-    pkgs.gnome-firmware
-    wayland-protocols
-    wayland-scanner
-    wayland
-    avahi
-    mesa
-    libffi
-    libevdev
-    libcap
-    libdrm
-    libxrandr
-    libxcb
-    ffmpeg-full
-    libevdev
-    libpulseaudio
-    libx11
-    pkgs.libxcb
-    libxfixes
-    libva
-    libvdpau
-    pkgs.moonlight-qt
-    # pkgs.sunshine  # Temporarily disabled - build fails fetching Boost dependencies
-    virt-manager
-    fuse
-    fuse3
-    appimage-run
-    pop-gtk-theme
-    cool-retro-term
-    gparted
-    vscode-fhs
-    logitech-udev-rules
-    ltunify
-    solaar
-    gtop
-    wine-wayland
-    bottles-unwrapped
-    yarn
-    pkgs.nodejs_20
-    pkgs.qemu
-    speechd
-    roboto
-    roboto-serif
-    quickemu
-    junction
-    distrobox
-    tor-browser
-    v4l-utils
-    v4l2-relayd
-    libv4l
-    # sunshine  # Temporarily disabled - build fails fetching Boost dependencies
-    nixfmt
-    qownnotes
-    roc-toolkit
-    libarchive
-    libzip
-    unrar
-    pzip
-    lrzip
-    kdePackages.ark
-    kdePackages.yakuake
-    kdePackages.kdenlive
-    kdePackages.ark
-    kdePackages.ktorrent
-    krita
-    kdePackages.discover
-    kdePackages.kfind
-    kdePackages.kleopatra
-    kdePackages.filelight
-    kdePackages.isoimagewriter
-    kdePackages.partitionmanager
-    # rustdesk-flutter  # disabled: build failure
-    pkgs.cifs-utils
-    pkgs.samba
-    distrobox
-    pwvucontrol
-    pipecontrol
-    wireplumber
-    pavucontrol
-    qpwgraph
-    kdePackages.plasma-browser-integration
-    gitui
-    cmake
-    ispell
-    gcc
-    go
-    aspell
-    gnumake
-    patchelf
-    mesa-demos
-    roc-toolkit
-    binutils
-    dool
-    file
-    iotop
-    pciutils
-    zellij
-    tree
-    lsof
-    lshw
-    jack2
-    obs-studio
-    obs-studio-plugins.wlrobs
-    obs-studio-plugins.waveform
-    obs-studio-plugins.obs-pipewire-audio-capture
-    lazygit
-    brave
-    simplex-chat-desktop
-    xrdp
-    caffeine-ng
-    filezilla
-    zed-editor
-    lutris
-    adwaita-icon-theme
-  ];
-
-  gaming = with pkgs; [
-    steam-run
-    moonlight-qt
-    # sunshine  # Temporarily disabled - build fails fetching Boost dependencies
-    adwaita-icon-theme
-    lutris
-    playonlinux
-    vulkan-tools
-    # Additional gaming from your current config
-    steam
-    appimage-run
-    wine-wayland
-    bottles-unwrapped
-  ];
-
-  # GTK applications
-  gtkApps = with pkgs; [
-    kdePackages.dolphin
-    kdePackages.kio-extras
-    kdePackages.kio-fuse
-    kdePackages.kio-admin
-    kdePackages.kdenetwork-filesharing
-    kdePackages.ffmpegthumbs
-    kdePackages.kdegraphics-thumbnailers
-    kdePackages.kimageformats
-    kdePackages.ark
-    kdePackages.konsole
-    # KDE System Components for file associations
-    kdePackages.systemsettings
-    kdePackages.kinfocenter
-    kdePackages.kfilemetadata
-    kdePackages.baloo
-    kdePackages.baloo-widgets
-    kdePackages.kservice
-    kdePackages.kded
-    kdePackages.kio-extras-kf5
-    shared-mime-info
-    desktop-file-utils
-    thunar
-    tumbler
-    gvfs
-    tokyonight-gtk-theme
-    papirus-icon-theme
-    bibata-cursors
-    # adwaita-qt and adwaita-qt6 removed - qgnomeplatform build failure in current nixpkgs
-    evince
-    eog
-    gnome-calculator
-    file-roller
-    celluloid
-    fragments
-    blanket
-    metadata-cleaner
-    dialect
-    drawing
-  ];
-
   # Centralized wallpaper path (standardized repo path; ensure the file exists in wallpapers/)
   wallpaperPath = ../../wallpapers/aishot-2602.jpg;
 
@@ -772,33 +389,18 @@ let
       systemctl --user set-environment GITHUB_TOKEN="$value"
     fi
   '';
-  # Script to setup OpenCode configuration with OpenRouter defaults
-  setupOpencodeConfigScript = pkgs.writeShellScript "setup-opencode-config" ''
-    set -euo pipefail
-    mkdir -p ${homeDir}/.config/opencode
-    cat > ${homeDir}/.config/opencode/opencode.json << 'EOF'
-    {
-      "$schema": "https://opencode.ai/config.json",
-      "model": "anthropic/claude-sonnet-4.5",
-      "autoupdate": true,
-      "theme": "opencode"
-    }
-    EOF
-    chown ${userName}:${userGroup} ${homeDir}/.config/opencode/opencode.json
-  '';
-
   # Script to setup R2 credentials template
   setupR2CredentialsScript = pkgs.writeShellScript "setup-r2-credentials" ''
         set -euo pipefail
-        
+
         SECRETS_DIR="${homeDir}/.config/secrets"
         TEMPLATE_FILE="$SECRETS_DIR/r2-credentials.template"
-        
+
         # Ensure secrets directory exists with proper permissions
         mkdir -p "$SECRETS_DIR"
         chmod 700 "$SECRETS_DIR"
         chown ${userName}:${userGroup} "$SECRETS_DIR"
-        
+
         # Create template file
         cat > "$TEMPLATE_FILE" << 'EOF'
     # R2 Credentials for Cloudflare R2 Storage
@@ -815,7 +417,7 @@ let
     # Public URL format (for reference):
     # https://feeds.jupiterbroadcasting.com/video/<filename>
     EOF
-        
+
         chmod 600 "$TEMPLATE_FILE"
         chown ${userName}:${userGroup} "$TEMPLATE_FILE"
   '';
@@ -823,30 +425,30 @@ let
   # Script to generate rclone config from R2 credentials
   generateRcloneConfigScript = pkgs.writeShellScript "generate-rclone-config" ''
         set -euo pipefail
-        
+
         SECRETS_FILE="${homeDir}/.config/secrets/r2-credentials"
         RCLONE_DIR="${homeDir}/.config/rclone"
         RCLONE_CONF="$RCLONE_DIR/rclone.conf"
-        
+
         # Skip if credentials file doesn't exist
         if [ ! -f "$SECRETS_FILE" ]; then
           echo "R2 credentials not found at $SECRETS_FILE - skipping rclone config generation"
           exit 0
         fi
-        
+
         # Source credentials
         source "$SECRETS_FILE"
-        
+
         # Validate required variables
         if [ -z "''${R2_ACCESS_KEY_ID:-}" ] || [ -z "''${R2_SECRET_ACCESS_KEY:-}" ] || [ -z "''${R2_ENDPOINT:-}" ]; then
           echo "ERROR: Missing required R2 credentials in $SECRETS_FILE"
           exit 1
         fi
-        
+
         # Create rclone config directory
         mkdir -p "$RCLONE_DIR"
         chmod 700 "$RCLONE_DIR"
-        
+
         # Generate rclone configuration
         cat > "$RCLONE_CONF" << EOF
     [r2-feeds]
@@ -860,10 +462,10 @@ let
     bucket_acl = public-read
     no_check_bucket = true
     EOF
-        
+
         chmod 600 "$RCLONE_CONF"
         chown ${userName}:${userGroup} "$RCLONE_CONF"
-        
+
         echo "Rclone configuration generated successfully"
   '';
 
@@ -909,8 +511,66 @@ let
         exit 1
     fi
   '';
-in
-{
+
+  # Script to mount the Nextcloud WebDAV share at /mnt/horse.  The secret is
+  # deliberately read at runtime so it never enters the Nix store or unit
+  # definition.
+  mountHorseScript = pkgs.writeShellScript "horse-mount" ''
+    set -euo pipefail
+
+    credentialsFile="${homeDir}/.config/secrets/files.horse"
+    cacheDir="${homeDir}/.cache/rclone/horse"
+    logDir="${homeDir}/.local/share/rclone"
+
+    if [ ! -r "$credentialsFile" ]; then
+      echo "Nextcloud credentials not found at $credentialsFile" >&2
+      exit 1
+    fi
+
+    mapfile -t horseCredentials < "$credentialsFile"
+    if [ "''${#horseCredentials[@]}" -ne 2 ] || \
+       [ -z "''${horseCredentials[0]}" ] || [ -z "''${horseCredentials[1]}" ]; then
+      echo "Expected username and password on two non-empty lines in $credentialsFile" >&2
+      exit 1
+    fi
+
+    mkdir -p /mnt/horse "$cacheDir" "$logDir"
+
+    # rclone's environment-backed password must be in its obscured form.
+    horsePasswordObscured="$(${pkgs.rclone}/bin/rclone obscure "''${horseCredentials[1]}")"
+    export RCLONE_CONFIG_HORSE_TYPE=webdav
+    export RCLONE_CONFIG_HORSE_URL="https://files.horse/remote.php/dav/files/''${horseCredentials[0]}/"
+    export RCLONE_CONFIG_HORSE_VENDOR=nextcloud
+    export RCLONE_CONFIG_HORSE_USER="''${horseCredentials[0]}"
+    export RCLONE_CONFIG_HORSE_PASS="$horsePasswordObscured"
+
+    exec ${pkgs.rclone}/bin/rclone mount horse: /mnt/horse \
+      --vfs-cache-mode=full \
+      --vfs-write-back=30s \
+      --vfs-cache-max-size=10G \
+      --vfs-cache-max-age=1h \
+      --cache-dir="$cacheDir" \
+      --buffer-size=64M \
+      --dir-cache-time=1m \
+      --poll-interval=0 \
+      --umask=0002 \
+      --dir-perms=0775 \
+      --file-perms=0664 \
+      --log-level=INFO \
+      --log-file="$logDir/horse.log" \
+      --transfers=4 \
+      --checkers=8
+  '';
+in {
+  hyprvibe.opencode.enable = true;
+  hyprvibe.opencode2Client.enable = true;
+  hyprvibe.hypruse.enable = true;
+  hyprvibe.herdr = {
+    enable = true;
+    ghostty.primaryFont = "Fira Code";
+  };
+  programs.syncshell-dms.enable = true;
+
   imports = [
     # Import the Hyprland flake module
     hyprland.nixosModules.default
@@ -918,8 +578,12 @@ in
     ./hardware-configuration.nix
     # Shared scaffolding (non-host-specific)
     ../../modules/shared
-    # AI/LLM stack (Ollama + LobeHub)
+    # DankMaterialShell profile and four-monitor bar layout
+    ./dms.nix
+    # AI/LLM stack (Ollama + Open WebUI)
     ./ai-memory-stack.nix
+    # Tailnet-only OpenAI-compatible Qwen3.8 GGUF server
+    ./qwen38-server.nix
   ];
 
   # Enable hyprvibe module toggles
@@ -928,9 +592,10 @@ in
     fonts.enable = true;
   };
   hyprvibe.hyprland.enable = true;
+  hyprvibe.hyprland.shellBackend = "dms";
   # Provide per-host monitors and wallpaper paths to hyprvibe module
-  hyprvibe.hyprland.monitorsFile = ../../configs/hyprland-monitors-nixstation.conf;
-  hyprvibe.hyprland.mainConfig = ./hyprland.conf;
+  hyprvibe.hyprland.monitorsFile = ../../configs/hyprland-monitors-nixstation.lua;
+  hyprvibe.hyprland.mainConfig = ./hyprland.lua;
   hyprvibe.hyprland.wallpaper = wallpaperPath;
   hyprvibe.hyprland.hyprpaperTemplate = ./hyprpaper.conf;
   hyprvibe.hyprland.hyprlockTemplate = ./hyprlock.conf;
@@ -968,10 +633,22 @@ in
     tailscale.enable = true;
     virt.enable = true;
     docker.enable = true;
+    syncthing = {
+      enable = true;
+      agentConfigs.enable = true;
+      dropbox = {
+        enable = true;
+        root = "/scary/Dropbox/Chris Fisher";
+      };
+    };
     nebula = {
       enable = false;
       nebulaIp = "192.168.100.11/24";
     };
+  };
+  hyprvibe.agentConfigs = {
+    enable = true;
+    codex.enable = true;
   };
   hyprvibe.packages = {
     enable = true;
@@ -1066,10 +743,10 @@ in
     hostName = "nixstation";
     networkmanager.enable = true;
     firewall.enable = false;
-    # Disable power management for network interface to prevent link drops
-    interfaces.eno1 = {
-      useDHCP = true;
-    };
+    # NetworkManager owns the br0 LAN bridge for VM attachment. Do not let
+    # scripted networking/dhcpcd request a second lease on the eno1 bridge slave.
+    useDHCP = false;
+    dhcpcd.enable = false;
   };
 
   # Batch 1: TCP performance tuning via sysctl (added to hardware-configuration.nix sysctl)
@@ -1090,15 +767,12 @@ in
   hardware = {
     bluetooth = {
       enable = true;
+      powerOnBoot = true;
       # Enhanced settings for Logitech mice
       settings = {
         General = {
           # Enable experimental features for better HID support
           Experimental = true;
-          # Enable battery reporting
-          BatteryReporting = true;
-          # Enable HID over GATT
-          HIDOverGATT = true;
         };
         Policy = {
           # Auto-enable Bluetooth on boot
@@ -1106,11 +780,6 @@ in
           # Allow pairing without PIN for trusted devices
           ReconnectAttempts = 7;
           ReconnectIntervals = "1,2,4,8,16,32,64";
-        };
-        GATT = {
-          # Enable HID over GATT for better mouse support
-          Key = "HIDOverGATT";
-          Value = true;
         };
       };
       # Additional packages for Logitech support
@@ -1123,7 +792,7 @@ in
         libva-vdpau-driver
         libvdpau-va-gl
       ];
-      extraPackages32 = with pkgs.pkgsi686Linux; [ libva-vdpau-driver ];
+      extraPackages32 = with pkgs.pkgsi686Linux; [libva-vdpau-driver];
     };
     # Batch 2: GPU optimizations are handled via kernel parameters (amdgpu.powerplay=1)
     i2c.enable = true;
@@ -1132,7 +801,6 @@ in
 
   # Services - PRESERVING YOUR EXISTING CONFIG
   services = {
-
     # Enable CUPS to print documents
     printing.enable = true;
 
@@ -1204,12 +872,16 @@ in
       SUBSYSTEM=="scsi_disk", GROUP="disk", MODE="0664"
       # Disable power management for network interface to prevent link drops
       SUBSYSTEM=="net", KERNEL=="eno1", ATTR{power/control}="on"
+      # The RTL8761BU adapter fails to recover from long-idle USB autosuspend.
+      ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="2357", ATTR{idProduct}=="0604", TEST=="power/control", ATTR{power/control}="on"
 
       # Batch 1: I/O scheduler and queue depth optimizations
       # Set I/O scheduler for SATA drives (rotational)
       ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="mq-deadline"
       # Increase I/O queue depth for better performance (NVMe and SATA)
       ACTION=="add|change", KERNEL=="sd[a-z]|nvme[0-9]*n[0-9]*", ATTR{queue/nr_requests}="1024"
+      # Allow OBS and conferencing applications to use the virtual camera
+      KERNEL=="video10", GROUP="video", MODE="0660"
     '';
     # Desktop support services moved to shared module (udisks2, gvfs, tumbler, blueman, avahi, davfs2, gnome-keyring)
     atuin = {
@@ -1245,7 +917,7 @@ in
       login.kwallet.enable = true;
       gdm.kwallet.enable = true;
       gdm-password.kwallet.enable = true;
-      hyprlock = { };
+      hyprlock = {};
       login.enableGnomeKeyring = true;
       gdm-password.enableGnomeKeyring = true;
     };
@@ -1283,11 +955,56 @@ in
     "uhid"
   ];
 
+  # Provide OBS and conferencing applications with a V4L2 virtual camera.
+  # Load it after the normal module-loading phase to avoid early-boot issues.
+  boot.extraModulePackages = with config.boot.kernelPackages; [v4l2loopback];
+  boot.extraModprobeConfig = ''
+    options v4l2loopback video_nr=10 exclusive_caps=1 card_label=OBS-VirtualCam
+  '';
+
+  # A wedged adapter can leave a soft rfkill block that systemd restores on the
+  # next boot, preventing BlueZ's normal power-on policy from taking effect.
+  systemd.services.bluetooth-unblock = {
+    description = "Clear stale Bluetooth rfkill state";
+    wantedBy = ["bluetooth.target"];
+    before = ["bluetooth.service"];
+    after = ["systemd-rfkill.service"];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.util-linux}/bin/rfkill unblock bluetooth";
+    };
+  };
+
+  # Powertop runs after udev during boot and otherwise changes the adapter back
+  # to autosuspend. Apply the exception inside Powertop's start transaction:
+  # a separate multi-user.target service ordered after Powertop creates a cycle.
+  systemd.services.powertop.postStart = ''
+    for device in /sys/bus/usb/devices/*; do
+      if [ -r "$device/idVendor" ] && [ -r "$device/idProduct" ] \
+        && [ "$(< "$device/idVendor")" = "2357" ] \
+        && [ "$(< "$device/idProduct")" = "0604" ] \
+        && [ -w "$device/power/control" ]; then
+        echo on > "$device/power/control"
+      fi
+    done
+  '';
+
+  systemd.services.load-v4l2loopback = {
+    description = "Load v4l2loopback kernel module";
+    wantedBy = ["multi-user.target"];
+    after = ["systemd-modules-load.service"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.kmod}/bin/modprobe v4l2loopback";
+    };
+  };
+
   # No man pages
   documentation.man.enable = false;
 
   # User configuration handled by hyprvibe.user
-  hyprvibe.user.extraGroups = [ "disk" ];
+  hyprvibe.user.extraGroups = ["disk" "dialout"];
 
   # Removed stale nixstation-specific activation script body.
   # Shared hyprvibe modules now manage Hyprland, shell, and related desktop files.
@@ -1393,14 +1110,14 @@ in
   xdg.portal = {
     enable = true;
     xdgOpenUsePortal = true;
-    extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+    extraPortals = [pkgs.xdg-desktop-portal-gtk];
     config = {
       common = {
         default = [
           "hyprland"
           "gtk"
         ];
-        "org.freedesktop.impl.portal.ScreenCast" = [ "hyprland" ];
+        "org.freedesktop.impl.portal.ScreenCast" = ["hyprland"];
       };
     };
   };
@@ -1469,8 +1186,8 @@ in
 
   systemd.user.services.set-github-token = {
     description = "Set GITHUB_TOKEN in systemd --user environment from ~/.config/secrets/github_token";
-    after = [ "default.target" ];
-    wantedBy = [ "default.target" ];
+    after = ["default.target"];
+    wantedBy = ["default.target"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -1478,23 +1195,11 @@ in
     };
   };
 
-  # Setup OpenCode configuration with OpenRouter defaults
-  systemd.user.services.setup-opencode-config = {
-    description = "Setup OpenCode configuration with OpenRouter defaults";
-    after = [ "default.target" ];
-    wantedBy = [ "default.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${setupOpencodeConfigScript}";
-    };
-  };
-
   # Solaar service for Logitech device management
   systemd.user.services.solaar = {
     description = "Solaar - Logitech device manager";
-    after = [ "graphical-session.target" ];
-    wantedBy = [ "graphical-session.target" ];
+    after = ["graphical-session.target"];
+    wantedBy = ["graphical-session.target"];
     serviceConfig = {
       Type = "simple";
       ExecStart = "${pkgs.solaar}/bin/solaar --window=hide";
@@ -1506,8 +1211,8 @@ in
   # Polkit authentication agent for GUI applications
   systemd.user.services.polkit-gnome-authentication-agent-1 = {
     description = "Polkit Authentication Agent";
-    after = [ "graphical-session.target" ];
-    wantedBy = [ "graphical-session.target" ];
+    after = ["graphical-session.target"];
+    wantedBy = ["graphical-session.target"];
     serviceConfig = {
       Type = "simple";
       ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
@@ -1517,11 +1222,108 @@ in
     };
   };
 
+  # Keep the local cloned Lore voice warm between turns.  The Python runtime,
+  # model cache, and private reference codes are provisioned in the user's
+  # state; Nix owns the launcher, service, and all paths/configuration.
+  systemd.user.services.voice-pe-neutts = {
+    description = "Local NeuTTS Lore voice server";
+    after = ["network-online.target"];
+    wants = ["network-online.target"];
+    wantedBy = ["default.target"];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${voicePeHermesBridge}/bin/voice-pe-neutts-server";
+      WorkingDirectory = homeDir;
+      Restart = "on-failure";
+      RestartSec = "5s";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = false;
+      ReadWritePaths = [
+        "${homeDir}/.cache"
+        "${homeDir}/.local/state"
+      ];
+    };
+    environment = {
+      VOICE_PE_NEUTTS_PYTHON = "${homeDir}/.local/share/voice-pe/neutts-venv/bin/python";
+      VOICE_PE_NEUTTS_BACKBONE = "${homeDir}/.cache/huggingface/hub/models--neuphonic--neutts-nano-q4-gguf/snapshots/8ae1694877fdf9d7c4a7bee2cc9775ba7eab3923/neutts-nano-Q4_0.gguf";
+      VOICE_PE_NEUTTS_CODEC = "${homeDir}/.cache/huggingface/hub/models--neuphonic--neucodec-onnx-decoder-int8/snapshots/706f4bd5fcc39b039c333d5407f58b0075dcee07/model.onnx";
+      VOICE_PE_NEUTTS_REFERENCE_CODES = "${homeDir}/.local/state/voice-pe/voice-reference/lore-data-log-2-0-12s-neutts-codes.pt";
+      VOICE_PE_NEUTTS_REFERENCE_TEXT = "${homeDir}/.local/state/voice-pe/voice-reference/lore-data-log-2-0-12s.txt";
+      VOICE_PE_NEUTTS_LANGUAGE = "en-us";
+      VOICE_PE_NEUTTS_BIND = "127.0.0.1";
+      VOICE_PE_NEUTTS_PORT = "8799";
+      HF_HOME = "${homeDir}/.cache/huggingface";
+      HF_HUB_OFFLINE = "1";
+    };
+  };
+
+  # Tailscale accepts a 192.168.7.0/24 subnet route from the RV's Home
+  # Assistant subnet router.  nixstation also owns that subnet locally on
+  # br0, so prefer the local LAN before Tailscale's policy-table rule.  This
+  # keeps the Voice PE and its studio announcement URL on the same LAN.
+  systemd.services.voice-pe-local-lan-route = {
+    description = "Prefer nixstation LAN for the local Voice PE subnet";
+    wantedBy = ["multi-user.target"];
+    wants = ["NetworkManager.service" "tailscaled.service"];
+    after = ["NetworkManager.service" "tailscaled.service"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStop = "${pkgs.iproute2}/bin/ip rule del priority 5200 to 192.168.7.0/24 lookup main";
+    };
+    script = ''
+      if ! ${pkgs.iproute2}/bin/ip rule show | ${pkgs.gnugrep}/bin/grep -q '5200:.*to 192\.168\.7\.0/24 lookup main'; then
+        ${pkgs.iproute2}/bin/ip rule add priority 5200 to 192.168.7.0/24 lookup main
+      fi
+    '';
+  };
+
+  # Studio Voice PE -> local STT/TTS -> Lore on Nomad.  The service reads
+  # bearer/API keys from the existing per-user secret files at runtime; no
+  # credential is copied into the Nix store or unit definition.
+  systemd.user.services.voice-pe-hermes-bridge = {
+    description = "Home Assistant Voice PE bridge for Hermes Lore";
+    after = ["network-online.target" "tailscaled.service" "voice-pe-neutts.service"];
+    wants = ["network-online.target"];
+    requires = ["voice-pe-neutts.service"];
+    wantedBy = ["default.target"];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${voicePeHermesBridge}/bin/voice-pe-hermes-bridge";
+      WorkingDirectory = homeDir;
+      Restart = "on-failure";
+      RestartSec = "5s";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = false;
+      ReadWritePaths = [
+        "${homeDir}/.cache"
+        "${homeDir}/.local/state"
+      ];
+    };
+    environment = {
+      VOICE_PE_DEVICE = "lore-voice-pe.local";
+      VOICE_PE_KEY_FILE = "${homeDir}/.config/secrets/home-assistant-voice-pe-noise-key";
+      VOICE_PE_HERMES_URL = "http://nomad.coin-noodlefish.ts.net:8643";
+      VOICE_PE_HERMES_KEY_FILE = "${homeDir}/.config/secrets/hermes_lore_api_server_key";
+      VOICE_PE_WHISPER_MODEL = "base";
+      VOICE_PE_TTS_COMMAND = "${voicePeHermesBridge}/bin/voice-pe-neutts-tts";
+      VOICE_PE_HTTP_BIND = "0.0.0.0";
+      VOICE_PE_HTTP_PORT = "8798";
+      VOICE_PE_HTTP_BASE = "http://192.168.7.29:8798";
+    };
+  };
+
   # R2 Storage: Setup credentials template
   systemd.user.services.setup-r2-credentials-template = {
     description = "Setup R2 credentials template";
-    after = [ "default.target" ];
-    wantedBy = [ "default.target" ];
+    after = ["default.target"];
+    wantedBy = ["default.target"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -1532,12 +1334,43 @@ in
   # R2 Storage: Generate rclone config from secrets
   systemd.user.services.setup-rclone-r2-config = {
     description = "Generate rclone R2 configuration from secrets";
-    after = [ "setup-r2-credentials-template.service" ];
-    wantedBy = [ "default.target" ];
+    after = ["setup-r2-credentials-template.service"];
+    wantedBy = ["default.target"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = "${generateRcloneConfigScript}";
+    };
+  };
+
+  # Nextcloud Storage: mount files.horse as the chrisf-owned /mnt/horse FUSE
+  # filesystem.  The user has linger enabled, so this is started at boot and
+  # does not depend on an interactive shell being opened.
+  systemd.tmpfiles.rules = [
+    "d /mnt/horse 0755 ${userName} ${userGroup} -"
+  ];
+
+  systemd.user.services.rclone-horse-mount = {
+    description = "Mount files.horse Nextcloud storage at /mnt/horse";
+    after = ["network-online.target"];
+    wants = ["network-online.target"];
+    wantedBy = ["default.target"];
+    serviceConfig = {
+      Type = "simple";
+      ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p /mnt/horse ${homeDir}/.cache/rclone/horse ${homeDir}/.local/share/rclone";
+      ExecStart = "${mountHorseScript}";
+      ExecStop = "/run/wrappers/bin/fusermount3 -uz /mnt/horse";
+      Restart = "on-failure";
+      RestartSec = "15s";
+      TimeoutStopSec = "30s";
+      ProtectSystem = "off";
+      ProtectHome = false;
+      PrivateMounts = false;
+    };
+    # rclone discovers fusermount3 through PATH.  NixOS's setuid wrapper must
+    # precede the ordinary package symlink for mounts from systemd services.
+    environment = {
+      PATH = lib.mkForce "/run/wrappers/bin:${lib.makeBinPath [pkgs.coreutils pkgs.rclone pkgs.fuse3]}";
     };
   };
 
@@ -1550,7 +1383,7 @@ in
       "setup-rclone-r2-config.service"
       "network-online.target"
     ];
-    requires = [ "setup-rclone-r2-config.service" ];
+    requires = ["setup-rclone-r2-config.service"];
     # Disabled: wantedBy = [ "default.target" ];
 
     serviceConfig = {
@@ -1604,14 +1437,14 @@ in
         if [ -f "$LOG_FILE" ]; then
           SIZE=$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)
           AGE=$(find "$LOG_FILE" -mtime +7 2>/dev/null | wc -l)
-          
+
           if [ "$SIZE" -gt 104857600 ] || [ "$AGE" -gt 0 ]; then
             mv "$LOG_FILE" "$LOG_FILE.$(date +%Y%m%d-%H%M%S)"
             touch "$LOG_FILE"
             chmod 600 "$LOG_FILE"
             chown ${userName}:${userGroup} "$LOG_FILE"
           fi
-          
+
           # Delete logs older than 14 days
           find "$LOG_DIR" -name "r2-feeds.log.*" -mtime +14 -delete
         fi
@@ -1622,7 +1455,7 @@ in
   # R2 Storage: Log rotation timer
   systemd.user.timers.rclone-r2-log-rotate = {
     description = "Timer for rclone R2 log rotation";
-    wantedBy = [ "timers.target" ];
+    wantedBy = ["timers.target"];
     timerConfig = {
       OnCalendar = "daily";
       Persistent = true;
@@ -1632,6 +1465,58 @@ in
   # Enable/Disable automatic login for the user - PRESERVING YOUR EXISTING CONFIG
   services.displayManager.autoLogin.enable = true;
   services.displayManager.autoLogin.user = "chrisf";
+  services.displayManager.defaultSession = "hyprland";
+
+  system.activationScripts.nixstationAccountsServiceSession = lib.mkAfter ''
+    accounts_file=/var/lib/AccountsService/users/chrisf
+    mkdir -p /var/lib/AccountsService/users
+
+    if [ ! -f "$accounts_file" ]; then
+      printf '[User]\n' > "$accounts_file"
+    elif ! grep -q '^\[User\]' "$accounts_file"; then
+      tmp_file="$(mktemp)"
+      {
+        printf '[User]\n'
+        cat "$accounts_file"
+      } > "$tmp_file"
+      cat "$tmp_file" > "$accounts_file"
+      rm -f "$tmp_file"
+    fi
+
+    if grep -q '^Session=' "$accounts_file"; then
+      sed -i 's/^Session=.*/Session=hyprland/' "$accounts_file"
+    else
+      printf 'Session=hyprland\n' >> "$accounts_file"
+    fi
+
+    if grep -q '^SessionType=' "$accounts_file"; then
+      sed -i 's/^SessionType=.*/SessionType=wayland/' "$accounts_file"
+    else
+      printf 'SessionType=wayland\n' >> "$accounts_file"
+    fi
+  '';
+
+  system.activationScripts.nixstationLauncherEntries = lib.mkAfter ''
+    install -Dm0755 ${./scripts/hyprvibe-launch-chrome.sh} ${homeDir}/.local/bin/hyprvibe-launch-chrome
+    install -Dm0755 ${./scripts/hyprvibe-launch-zen.sh} ${homeDir}/.local/bin/hyprvibe-launch-zen
+    install -Dm0755 ${./scripts/hyprvibe-launch-obsidian.sh} ${homeDir}/.local/bin/hyprvibe-launch-obsidian
+    install -Dm0755 ${./scripts/vicinae-launch.sh} ${homeDir}/.local/bin/vicinae-safe
+    install -Dm0644 ${./desktop-entries/com.google.Chrome.desktop} ${homeDir}/.local/share/applications/com.google.Chrome.desktop
+    install -Dm0644 ${./desktop-entries/app.zen_browser.zen.desktop} ${homeDir}/.local/share/applications/app.zen_browser.zen.desktop
+    install -Dm0644 ${./desktop-entries/md.obsidian.Obsidian.desktop} ${homeDir}/.local/share/applications/md.obsidian.Obsidian.desktop
+    chown ${userName}:${userGroup} \
+      ${homeDir}/.local/bin/hyprvibe-launch-chrome \
+      ${homeDir}/.local/bin/hyprvibe-launch-zen \
+      ${homeDir}/.local/bin/hyprvibe-launch-obsidian \
+      ${homeDir}/.local/bin/vicinae-safe \
+      ${homeDir}/.local/share/applications/com.google.Chrome.desktop \
+      ${homeDir}/.local/share/applications/app.zen_browser.zen.desktop \
+      ${homeDir}/.local/share/applications/md.obsidian.Obsidian.desktop
+  '';
+
+  system.activationScripts.nixstationDisableMaestralAutostart = lib.mkAfter ''
+    rm -f ${homeDir}/.config/autostart/maestral-maestral.desktop
+  '';
 
   # Workaround for GNOME autologin - PRESERVING YOUR EXISTING CONFIG
   systemd.services."getty@tty1".enable = false;

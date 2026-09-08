@@ -1,12 +1,9 @@
 {
   config,
   pkgs,
-  openclaw,
   self,
   ...
-}:
-
-let
+}: let
   # Hyprvibe user options (from modules/shared/user.nix)
   userName = config.hyprvibe.user.name;
   userGroup = config.hyprvibe.user.group;
@@ -249,7 +246,6 @@ let
     # zoxide  # deduped; present in utilities
     rclone-browser
     # code-cursor
-
   ];
 
   gaming = with pkgs; [
@@ -283,7 +279,6 @@ let
     tumbler
     gvfs
     # Theming packages
-    tokyonight-gtk-theme
     papirus-icon-theme
     bibata-cursors
     # Document viewer
@@ -315,42 +310,6 @@ let
       systemctl --user set-environment GITHUB_TOKEN="$value"
     fi
   '';
-  # Script to setup OpenCode configuration with modular MCP snippets
-  setupOpencodeConfigScript = pkgs.writeShellScript "setup-opencode-config" ''
-    set -euo pipefail
-
-    # 1. Ensure directories exist
-    mkdir -p ${homeDir}/.config/opencode
-
-    # 2. Base Configuration Template
-    BASE_CONFIG='{
-      "$schema": "https://opencode.ai/config.json",
-      "model": "anthropic/claude-sonnet-4.5",
-      "autoupdate": true,
-      "theme": "opencode",
-      "mcp": {}
-    }'
-
-    # 3. Safe Merge using jq
-    # Iterates over snippets in /etc/opencode/mcp.d and merges them into the base
-    if [ -d "/etc/opencode/mcp.d" ] && [ "$(ls -A /etc/opencode/mcp.d/*.json 2>/dev/null)" ]; then
-      MERGED_MCP=$(${pkgs.jq}/bin/jq -s 'reduce .[] as $item ({}; . * $item)' /etc/opencode/mcp.d/*.json)
-      FINAL_JSON=$(echo "$BASE_CONFIG" | ${pkgs.jq}/bin/jq --argjson mcp "$MERGED_MCP" '.mcp = $mcp')
-    else
-      FINAL_JSON="$BASE_CONFIG"
-    fi
-
-    # 4. Atomic Deployment
-    echo "$FINAL_JSON" > ${homeDir}/.config/opencode/opencode.json.tmp
-    if ${pkgs.jq}/bin/jq . ${homeDir}/.config/opencode/opencode.json.tmp > /dev/null 2>&1; then
-      mv ${homeDir}/.config/opencode/opencode.json.tmp ${homeDir}/.config/opencode/opencode.json
-      chown ${userName}:${userGroup} ${homeDir}/.config/opencode/opencode.json
-    else
-      echo "ERROR: Generated JSON is invalid. Aborting update to prevent breakage."
-      exit 1
-    fi
-  '';
-
   # Script to setup SSH config for remote host management
   setupSshConfigScript = pkgs.writeShellScript "setup-ssh-config" ''
         set -euo pipefail
@@ -693,14 +652,12 @@ let
       fi
     done
   '';
-in
-{
+in {
   imports = [
     # Import your hardware configuration
     ./hardware-configuration.nix
     # Shared scaffolding (non-host-specific)
     ../../modules/shared
-    ./lore.nix
   ];
 
   # Enable shared module toggles
@@ -711,8 +668,8 @@ in
   };
   hyprvibe.hyprland.enable = true;
   # Provide per-host monitors and wallpaper paths to shared module
-  hyprvibe.hyprland.monitorsFile = ../../configs/hyprland-monitors-rvbee-120hz.conf;
-  hyprvibe.hyprland.mainConfig = ./hyprland.conf;
+  hyprvibe.hyprland.monitorsFile = ../../configs/hyprland-monitors-rvbee-120hz.lua;
+  hyprvibe.hyprland.mainConfig = ./hyprland.lua;
   hyprvibe.hyprland.wallpaper = wallpaperPath;
   hyprvibe.hyprland.hyprpaperTemplate = ./hyprpaper.conf;
   hyprvibe.hyprland.hyprlockTemplate = ./hyprlock.conf;
@@ -738,20 +695,28 @@ in
     group = "users";
     home = "/home/chrisf";
     description = "Chris Fisher";
-    extraGroups = [ "plugdev" ];
+    extraGroups = ["plugdev"];
   };
 
   # Define custom groups referenced by udev rules
-  users.groups.plugdev = { };
+  users.groups.plugdev = {};
   hyprvibe.services = {
     enable = true;
 
     virt.enable = true;
     docker.enable = false;
+    syncthing = {
+      enable = true;
+      agentConfigs.enable = true;
+    };
     nebula = {
       enable = true;
       nebulaIp = "192.168.100.10/24";
     };
+  };
+  hyprvibe.agentConfigs = {
+    enable = true;
+    codex.enable = true;
   };
 
   # Define modular MCP snippets for opencode
@@ -841,7 +806,7 @@ in
   };
 
   # Android ADB udev support now covered by systemd uaccess rules; keep brightnessctl
-  services.udev.packages = [ pkgs.brightnessctl ];
+  services.udev.packages = [pkgs.brightnessctl];
   services.udev.extraRules = ''
     # Elgato Stream Deck (USB + hidraw)
     SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", MODE="0660", GROUP="plugdev"
@@ -876,7 +841,7 @@ in
     initrd.verbose = true;
     # v4l2loopback for virtual webcam support (OBS, conferencing apps)
     # Keep it out of early boot to avoid potential boot-time panics.
-    extraModulePackages = with config.boot.kernelPackages; [ v4l2loopback ];
+    extraModulePackages = with config.boot.kernelPackages; [v4l2loopback];
     extraModprobeConfig = ''
       # Dedicated virtual camera for OBS capture, fixed at /dev/video10
       options v4l2loopback video_nr=10 exclusive_caps=1 card_label=OBS-VirtualCam
@@ -912,8 +877,8 @@ in
     # Set AMD EPP to performance on boot
     services.set-epp-performance = {
       description = "Set AMD EPP to performance for all CPU policies";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "sysinit.target" ];
+      wantedBy = ["multi-user.target"];
+      after = ["sysinit.target"];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${setEppPerformanceScript}";
@@ -921,13 +886,13 @@ in
       };
     };
     # Keep Netdata unit installed but do not enable it at boot
-    services.netdata.wantedBy = pkgs.lib.mkForce [ ];
+    services.netdata.wantedBy = pkgs.lib.mkForce [];
     services.netdata.restartIfChanged = false;
     # Load v4l2loopback after base boot instead of in early kernel module phase.
     services.load-v4l2loopback = {
       description = "Load v4l2loopback kernel module";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "systemd-modules-load.service" ];
+      wantedBy = ["multi-user.target"];
+      after = ["systemd-modules-load.service"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -936,8 +901,8 @@ in
     };
     user.services.kwalletd = {
       description = "KWallet user daemon";
-      after = [ "graphical-session.target" ];
-      wantedBy = [ "graphical-session.target" ];
+      after = ["graphical-session.target"];
+      wantedBy = ["graphical-session.target"];
       serviceConfig = {
         Environment = [
           "QT_QPA_PLATFORM=wayland"
@@ -951,8 +916,8 @@ in
     # Load GITHUB_TOKEN into the systemd user manager environment from a local secret file
     user.services.set-github-token = {
       description = "Set GITHUB_TOKEN in systemd --user environment from ~/.config/secrets/github_token";
-      after = [ "default.target" ];
-      wantedBy = [ "default.target" ];
+      after = ["default.target"];
+      wantedBy = ["default.target"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -960,23 +925,11 @@ in
       };
     };
 
-    # Setup OpenCode configuration with MCP servers
-    user.services.setup-opencode-config = {
-      description = "Setup OpenCode configuration with MCP servers";
-      after = [ "default.target" ];
-      wantedBy = [ "default.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = "${setupOpencodeConfigScript}";
-      };
-    };
-
     # Setup SSH config for remote host management
     user.services.setup-ssh-config = {
       description = "Setup SSH config for remote host management";
-      after = [ "default.target" ];
-      wantedBy = [ "default.target" ];
+      after = ["default.target"];
+      wantedBy = ["default.target"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -987,8 +940,8 @@ in
     # Setup SSH helper scripts (setup-ssh-keys, check-remote-sudo, ssh-ha, remote-exec)
     user.services.setup-ssh-helper-scripts = {
       description = "Setup SSH helper scripts for remote host management";
-      after = [ "default.target" ];
-      wantedBy = [ "default.target" ];
+      after = ["default.target"];
+      wantedBy = ["default.target"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -1115,7 +1068,7 @@ in
     ProtectControlGroups = pkgs.lib.mkForce false;
     RestrictSUIDSGID = pkgs.lib.mkForce false;
     RestrictRealtime = pkgs.lib.mkForce false;
-    SystemCallFilter = pkgs.lib.mkForce [ ];
+    SystemCallFilter = pkgs.lib.mkForce [];
     SystemCallArchitectures = pkgs.lib.mkForce "";
   };
 
@@ -1132,7 +1085,7 @@ in
       login.kwallet.enable = true;
       gdm.kwallet.enable = true;
       gdm-password.kwallet.enable = true;
-      hyprlock = { };
+      hyprlock = {};
       # Unlock GNOME Keyring on login for GVFS credentials
       login.enableGnomeKeyring = true;
       gdm-password.enableGnomeKeyring = true;
@@ -1203,7 +1156,7 @@ in
       "io.containers.autoupdate" = "registry";
     };
     # Use host user namespace to avoid uidmap permission issues
-    extraOptions = [ "--userns=host" ];
+    extraOptions = ["--userns=host"];
   };
 
   # CamoFox Image Builder Service
@@ -1215,7 +1168,7 @@ in
       "network.target"
       "podman.socket"
     ];
-    requires = [ "podman.socket" ];
+    requires = ["podman.socket"];
     serviceConfig = {
       Type = "oneshot";
       WorkingDirectory = "/var/lib/camofox-builder";
@@ -1262,7 +1215,7 @@ in
   # Timer to rebuild CamoFox image daily
   systemd.timers.camofox-image-builder = {
     description = "Daily rebuild of CamoFox browser image";
-    wantedBy = [ "timers.target" ];
+    wantedBy = ["timers.target"];
     timerConfig = {
       OnCalendar = "daily";
       Persistent = true;
@@ -1277,18 +1230,18 @@ in
       "camofox-image-builder.service"
       "network.target"
     ];
-    requires = [ "camofox-image-builder.service" ];
+    requires = ["camofox-image-builder.service"];
   };
 
   # Trigger initial build on boot (only if image doesn't exist)
   systemd.services.camofox-image-builder-init = {
     description = "Initial CamoFox image build on boot";
-    wantedBy = [ "multi-user.target" ];
+    wantedBy = ["multi-user.target"];
     after = [
       "network.target"
       "podman.socket"
     ];
-    before = [ "podman-camofox.service" ];
+    before = ["podman-camofox.service"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -1321,7 +1274,7 @@ in
     labels = {
       "io.containers.autoupdate" = "registry";
     };
-    extraOptions = [ ];
+    extraOptions = [];
   };
 
   # Ensure persistent data directories exist
@@ -1342,26 +1295,30 @@ in
   ];
 
   # Open firewall for Companion
-  networking.firewall.allowedTCPPorts = (config.networking.firewall.allowedTCPPorts or [ ]) ++ [
-    8000
-    51234
-    9377
-  ];
+  networking.firewall.allowedTCPPorts =
+    (config.networking.firewall.allowedTCPPorts or [])
+    ++ [
+      8000
+      51234
+      9377
+    ];
 
   # Disable CoW on specific directories for better performance
   systemd.services.disable-cow = {
     description = "Disable Copy-on-Write on specific directories";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
+    wantedBy = ["multi-user.target"];
+    after = ["local-fs.target"];
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${pkgs.bash}/bin/bash -c '${pkgs.coreutils}/bin/chattr +C /var/lib/docker /var/lib/libvirt /home/chrisf/Downloads /home/chrisf/.steam /home/chrisf/.local/share/Steam /tmp /var/tmp 2>/dev/null || true'";
       RemainAfterExit = true;
     };
   };
-  networking.firewall.allowedUDPPorts = (config.networking.firewall.allowedUDPPorts or [ ]) ++ [
-    51234
-  ];
+  networking.firewall.allowedUDPPorts =
+    (config.networking.firewall.allowedUDPPorts or [])
+    ++ [
+      51234
+    ];
 
   # Removed stale rvbee-specific activation script body.
   # Shared hyprvibe modules now manage Hyprland, shell, and related desktop files.
@@ -1400,13 +1357,13 @@ in
           QT_QPA_PLATFORM = "xcb";
         };
         # Binaries needed inside the Steam runtime container
-        extraPkgs =
-          pkgs': with pkgs'; [
+        extraPkgs = pkgs':
+          with pkgs'; [
             psmisc # provides `killall`
           ];
         # Shared libs needed inside the Steam runtime container
-        extraLibraries =
-          pkgs': with pkgs'; [
+        extraLibraries = pkgs':
+          with pkgs'; [
             gamemode # provides libgamemode.so (fixes gamemodeauto dlopen failed)
           ];
         # Help SteamVR's vrwebhelper locate its own shipped libs (libcef.so, etc.)
@@ -1498,14 +1455,14 @@ in
     enable = true;
     xdgOpenUsePortal = true;
     # Hyprland module provides its own portal; include only GTK here to avoid duplicate units
-    extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+    extraPortals = [pkgs.xdg-desktop-portal-gtk];
     config = {
       common = {
         default = [
           "hyprland"
           "gtk"
         ];
-        "org.freedesktop.impl.portal.ScreenCast" = [ "hyprland" ];
+        "org.freedesktop.impl.portal.ScreenCast" = ["hyprland"];
       };
     };
   };
@@ -1529,10 +1486,6 @@ in
     "jitsi-meet-1.0.8792"
   ];
   # Workaround: upstream mat2 test regression (breaks metadata-cleaner)
-  # OpenClaw pnpm-deps hash override for upstream hash mismatches
-  # When upstream openclaw/nix-openclaw updates pnpm-lock.json without updating flake.nix,
-  # we patch the hash here. See OPENCLAW_HASH_MISMATCH.md for details.
-  # Updated 2026-03-03 for openclaw rev 8acd74a46b4cdafcda4bb77cccad60782111c739
   nixpkgs.overlays = [
     (final: prev: {
       python3Packages = prev.python3Packages.override {

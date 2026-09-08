@@ -23,7 +23,7 @@
     "memory",
     "custom/amd_gpu",
     "gamemode",
-    "custom/openrouter",
+    "custom/codexbar",
     "tray",
     "bluetooth",
     "idle_inhibitor",
@@ -117,20 +117,39 @@
       "deactivated": "🌙"
     }
   },
-  "custom/openrouter": {
+  "custom/codexbar": {
     "return-type": "json",
-    "exec": "~/.config/waybar/scripts/waybar-openrouter.sh",
+    "exec": "codexbar --format '{session_pct}% {session_pace}'",
     "interval": 300,
+    "signal": 12,
     "tooltip": true,
-    "format": "{}"
+    "on-click": "xdg-open https://chatgpt.com/codex/settings/usage"
   },
   "gamemode": {
     "format": "GM {count}"
   },
   "clock": {
-    "format": "🕒 {:%I:%M %p}",
-    "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
-    "format-alt": "{:%Y-%m-%d}"
+    "format": "{0:%H:%M} 🕒",
+    "tooltip-format": "<big>{0:%Y %B}</big>\n<tt><small>{calendar}</small></tt>\n\n<b>US</b>\nPacific: {0:%H:%M %Z}\n{tz_list}",
+    "timezone-tooltip-format": "{0:%Z}: {0:%H:%M}",
+    "timezones": [
+      "America/Los_Angeles",
+      "America/Denver",
+      "America/New_York",
+      "Europe/London",
+      "UTC"
+    ],
+    "calendar": {
+      "format": {
+        "today": "<span color='#ffe86b'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-scroll-up": "shift_up",
+      "on-scroll-down": "shift_down",
+      "on-click-right": "mode"
+    },
+    "format-alt": "{0:%Y-%m-%d}"
   },
   "tray": {
     "spacing": 10

@@ -15,11 +15,8 @@
     
     "network",
     "custom/public_ip",
-    "cpu",
-    "memory",
     "custom/battery",
     "gamemode",
-    "custom/openrouter",
     "tray",
     "bluetooth",
     "idle_inhibitor",
@@ -90,14 +87,6 @@
     "tooltip": true,
     "format": "🌍 {}"
   },
-  "cpu": {
-    "format": "🖥️ {usage}% ",
-    "tooltip": false
-  },
-  "memory": {
-    "format": "🤖 {percentage}% ",
-    "tooltip": false
-  },
   "custom/battery": {
     "return-type": "json",
     "exec": "/home/chrisf/.config/waybar/scripts/waybar-battery.sh",
@@ -115,17 +104,28 @@
   "gamemode": {
     "format": "GM {count}"
   },
-  "custom/openrouter": {
-    "return-type": "json",
-    "exec": "/home/chrisf/.config/waybar/scripts/waybar-openrouter.sh",
-    "interval": 300,
-    "tooltip": true,
-    "format": "{}"
-  },
   "clock": {
-    "format": "🕒 {:%I:%M %p}",
-    "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
-    "format-alt": "{:%Y-%m-%d}"
+    "format": "{0:%H:%M} 🕒",
+    "tooltip-format": "<big>{0:%Y %B}</big>\n<tt><small>{calendar}</small></tt>\n\n<b>US</b>\nPacific: {0:%H:%M %Z}\n{tz_list}",
+    "timezone-tooltip-format": "{0:%Z}: {0:%H:%M}",
+    "timezones": [
+      "America/Los_Angeles",
+      "America/Denver",
+      "America/New_York",
+      "Europe/London",
+      "UTC"
+    ],
+    "calendar": {
+      "format": {
+        "today": "<span color='#ffe86b'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-scroll-up": "shift_up",
+      "on-scroll-down": "shift_down",
+      "on-click-right": "mode"
+    },
+    "format-alt": "{0:%Y-%m-%d}"
   },
   "tray": {
     "spacing": 10

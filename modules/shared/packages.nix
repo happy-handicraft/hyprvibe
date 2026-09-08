@@ -3,8 +3,7 @@
   pkgs,
   config,
   ...
-}:
-let
+}: let
   cfg = config.hyprvibe.packages;
   janWrappedLower = pkgs.writeShellScriptBin "jan" ''
     export LD_LIBRARY_PATH=${pkgs.openssl}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
@@ -14,6 +13,7 @@ let
     export LD_LIBRARY_PATH=${pkgs.openssl}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     exec ${pkgs.jan}/bin/Jan "$@"
   '';
+  vicinaeSafe = pkgs.writeShellScriptBin "vicinae-safe" (builtins.readFile ../../configs/vicinae-launch.sh);
   # Curated common sets derived from overlaps across hosts
   basePackages = with pkgs; [
     htop
@@ -51,7 +51,9 @@ let
   desktopPackages = with pkgs; [
     xdg-utils
     wl-clipboard
+    wl-clip-persist
     grim
+    grimblast
     slurp
     swappy
     wf-recorder
@@ -59,10 +61,13 @@ let
     brightnessctl
     playerctl
     pavucontrol
+    junction
+    networkmanagerapplet
     # qt6ct  # Temporarily disabled - pulls in qgnomeplatform which has build failure in current nixpkgs
     # Core desktop apps
     kitty
     vicinae
+    vicinaeSafe
     bibata-cursors
     # Hyprland companions started by base config
     hyprpaper
@@ -87,22 +92,25 @@ let
   ];
   gamingPackages = with pkgs; [
     steam-run
-    lutris
     moonlight-qt
     # sunshine  # Temporarily disabled - build fails fetching Boost dependencies
     vulkan-tools
   ];
-in
-{
+in {
   options.hyprvibe.packages = {
     enable = lib.mkEnableOption "Shared package groups";
     base.enable = lib.mkEnableOption "Common CLI utilities";
     desktop.enable = lib.mkEnableOption "Desktop helpers for Wayland sessions";
     dev.enable = lib.mkEnableOption "Developer toolchain";
     gaming.enable = lib.mkEnableOption "Gaming helpers";
+    dunst.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Install the Dunst notification daemon for desktop sessions";
+    };
     extraPackages = lib.mkOption {
       type = with lib.types; listOf package;
-      default = [ ];
+      default = [];
       description = "Additional packages to append to shared packages.";
     };
   };
@@ -113,6 +121,7 @@ in
       ++ (lib.optionals cfg.desktop.enable desktopPackages)
       ++ (lib.optionals cfg.dev.enable devPackages)
       ++ (lib.optionals cfg.gaming.enable gamingPackages)
+      ++ (lib.optional cfg.dunst.enable pkgs.dunst)
       ++ cfg.extraPackages;
   };
 }

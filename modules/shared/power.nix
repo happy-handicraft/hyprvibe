@@ -7,7 +7,15 @@
 let
   cfg = config.hyprvibe.power;
   userName = config.hyprvibe.user.name;
+  userGroup = config.hyprvibe.user.group;
   userHome = config.hyprvibe.user.home;
+  powerProfileMenu = pkgs.writeShellScriptBin "power-profile-menu" ''
+    set -euo pipefail
+    choice="$(${pkgs.coreutils}/bin/printf '%s\n' performance balanced power-saver \
+      | ${lib.getExe pkgs.vicinae} dmenu -p "Power profile")"
+    [ -n "$choice" ] || exit 0
+    exec ${userHome}/.local/bin/power-profile "$choice"
+  '';
 in
 {
   options.hyprvibe.power = {
@@ -65,11 +73,12 @@ in
       power-profiles-daemon
       upower
       acpi
-    ];
+    ] ++ [ powerProfileMenu ];
 
     # Power profile switching script
     systemd.user.services.power-profile-switcher = {
       description = "Power profile switcher script";
+      unitConfig.ConditionUser = userName;
       wantedBy = [ "default.target" ];
       serviceConfig = {
         Type = "oneshot";
@@ -86,6 +95,7 @@ in
     # Battery monitoring and auto-sleep service
     systemd.user.services.battery-auto-sleep = lib.mkIf (cfg.autoSleepOnBatteryMinutes > 0) {
       description = "Auto-sleep on battery after inactivity";
+      unitConfig.ConditionUser = userName;
       after = [ "graphical-session.target" ];
       wantedBy = [ "graphical-session.target" ];
       serviceConfig = {
@@ -146,7 +156,7 @@ in
 
     # Power profile switching script (installed to user's local bin)
     system.activationScripts.installPowerProfileScript = ''
-      mkdir -p ${userHome}/.local/bin
+      install -d -m0755 -o ${userName} -g ${userGroup} ${userHome}/.local/bin
       cat > ${userHome}/.local/bin/power-profile << 'POWERPROFILE_EOF'
       #!/usr/bin/env bash
       set -euo pipefail
@@ -313,7 +323,7 @@ in
       esac
       POWERPROFILE_EOF
       chmod +x ${userHome}/.local/bin/power-profile
-      chown ${userName}:users ${userHome}/.local/bin/power-profile
+      chown ${userName}:${userGroup} ${userHome}/.local ${userHome}/.local/bin ${userHome}/.local/bin/power-profile
     '';
   };
 }
